@@ -132,7 +132,7 @@ export default function MyBookingsPage() {
                     </div>
                     <div>
                        <p className="text-xs text-gray-400 uppercase tracking-wide font-bold">Price</p>
-                       <p className="text-xl font-bold text-[#D4AF37]">₹{nextAppointment.services?.price}</p>
+                       <p className="text-xl font-bold text-[#D4AF37]">${nextAppointment.services?.price}</p>
                     </div>
                   </div>
 
@@ -190,7 +190,7 @@ export default function MyBookingsPage() {
                         {new Date(b.booking_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                       </p>
                       <div className="pt-4 border-t border-gray-50 flex justify-between items-center">
-                         <span className="font-bold text-[#0B3D2E]">₹{b.services?.price}</span>
+                         <span className="font-bold text-[#0B3D2E]">${b.services?.price}</span>
                          <button onClick={() => { setSelectedBooking(b); setShowReschedule(true); }} className="text-sm font-bold text-gray-400 hover:text-[#0B3D2E]">Edit</button>
                       </div>
                     </div>
@@ -237,7 +237,7 @@ export default function MyBookingsPage() {
                            <p className="text-[10px] text-red-400 mt-1 max-w-[150px] truncate">Note: {b.cancellation_reason}</p>
                          )}
                       </td>
-                      <td className="p-6 text-right font-bold text-[#0B3D2E]">₹{b.services?.price}</td>
+                      <td className="p-6 text-right font-bold text-[#0B3D2E]">${b.services?.price}</td>
                     </tr>
                   ))}
                 </tbody>

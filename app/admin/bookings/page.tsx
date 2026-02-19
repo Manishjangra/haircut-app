@@ -109,7 +109,7 @@ export default function AdminBookingsPage() {
                     {/* Service & Price */}
                     <td className="p-6">
                       <p className="font-bold text-[#1A1A1A] text-lg">{b.services?.name || 'Unknown Service'}</p>
-                      <p className="text-[#D4AF37] font-black mt-1">₹{b.services?.price}</p>
+                     <p className="text-[#D4AF37] font-black mt-1">${b.services?.price}</p>
                       {/* --- THIS LINE IS FIXED --- */}
                       <p className="text-xs text-gray-400 font-mono mt-2">ID: #{b.id}</p>
                     </td>

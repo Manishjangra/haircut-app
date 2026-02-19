@@ -138,7 +138,7 @@ export default function Home() {
                 <div className="mt-auto pt-6 border-t border-gray-50 flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-400 uppercase tracking-wide font-bold">Total</p>
-                    <p className="text-2xl font-bold text-[#0B3D2E]">₹{service.price}</p>
+                    <p className="text-2xl font-bold text-[#0B3D2E]">${service.price}</p>
                   </div>
                   
                   <Link 

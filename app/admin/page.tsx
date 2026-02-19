@@ -60,7 +60,7 @@ export default function AdminDashboard() {
           <div className="w-14 h-14 bg-[#E6F4EA] rounded-xl flex items-center justify-center text-2xl">💰</div>
           <div>
             <p className="text-sm font-bold text-gray-400 uppercase tracking-wide">Total Revenue</p>
-            <h2 className="text-3xl font-black text-[#0B3D2E]">₹{stats.revenue}</h2>
+            <h2 className="text-3xl font-black text-[#0B3D2E]">${stats.revenue}</h2>
           </div>
         </div>
 
@@ -120,7 +120,7 @@ export default function AdminDashboard() {
                     </span>
                   </td>
                   <td className="p-4 text-right font-bold text-[#0B3D2E]">
-                    ₹{b.services?.price || 0}
+                    ${b.services?.price || 0}
                   </td>
                 </tr>
               ))

@@ -144,7 +144,7 @@ function BookingContent() {
 
             <div className="border-t pt-4 mb-6 flex justify-between items-center">
               <span className="font-bold text-lg text-[#0B3D2E]">Total</span>
-              <span className="font-bold text-2xl text-[#0B3D2E]">₹{price}</span>
+              <span className="font-bold text-2xl text-[#0B3D2E]">${price}</span>
             </div>
 
             <button 

@@ -87,7 +87,7 @@ export default function AdminServicesPage() {
               
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Price (₹)</label>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Price ($)</label>
                   <input required type="number" value={price} onChange={e => setPrice(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[#0B3D2E]"/>
                 </div>
                 <div>
@@ -140,7 +140,7 @@ export default function AdminServicesPage() {
                 <div className="p-6 flex-1 flex flex-col justify-between">
                   <div>
                     <h3 className="text-xl font-bold text-[#0B3D2E] mb-2">{s.name}</h3>
-                    <p className="text-2xl font-black text-[#D4AF37]">₹{s.price}</p>
+                    <p className="text-2xl font-black text-[#D4AF37]">${s.price}</p>
                   </div>
                   
                   <div className="mt-6 flex gap-3 border-t border-gray-50 pt-4">
