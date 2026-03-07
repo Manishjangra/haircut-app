@@ -18,7 +18,7 @@ export default function AdminBookingsPage() {
   async function fetchBookings() {
     setLoading(true)
     
-    // Fetch bookings and providers at the same time
+    // Fetch bookings and providers
     const [bookingsRes, providersRes] = await Promise.all([
       supabase.from('bookings').select('*, services(name, price, duration_minutes)').order('booking_date', { ascending: false }),
       supabase.from('providers').select('*')
@@ -27,7 +27,7 @@ export default function AdminBookingsPage() {
     if (bookingsRes.data) {
       // Map the provider's full details into the booking object
       const enhancedBookings = bookingsRes.data.map(b => {
-        const stylistId = b.assigned_stylist_id || b.stylist_id // Check both just in case
+        const stylistId = b.assigned_stylist_id || b.stylist_id 
         const assignedStylist = providersRes.data?.find(p => p.id === stylistId)
         return { ...b, stylist: assignedStylist }
       })
@@ -64,34 +64,45 @@ export default function AdminBookingsPage() {
     const searchString = searchQuery.toLowerCase();
     const matchesSearch = 
       b.id.toString().includes(searchString) || 
-      (b.services?.name || '').toLowerCase().includes(searchString) ||
-      (b.stylist?.full_name || '').toLowerCase().includes(searchString) || // Search by Stylist Name
+      (b.services?.name || b.service_name || '').toLowerCase().includes(searchString) ||
+      (b.stylist?.full_name || '').toLowerCase().includes(searchString) || 
       (b.address || '').toLowerCase().includes(searchString);
     const matchesDate = dateFilter === '' || b.booking_date.startsWith(dateFilter);
 
     return matchesTab && matchesSearch && matchesDate;
   });
 
-  // --- CSV Export Logic ---
+  // --- UPGRADED CSV EXPORT LOGIC (For Accounting) ---
   function exportToCSV() {
-    const headers = ['Booking ID', 'Service', 'Price', 'Date', 'Time', 'Status', 'Address', 'Provider Assigned']
-    const csvRows = filteredBookings.map(b => [
-      b.id,
-      `"${b.services?.name || 'Unknown'}"`,
-      b.services?.price || 0,
-      new Date(b.booking_date).toLocaleDateString(),
-      new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-      b.status,
-      `"${b.address || ''}"`,
-      `"${b.stylist?.full_name || 'Unassigned'}"`
-    ])
+    const headers = ['Booking ID', 'Service', 'Date', 'Time', 'Status', 'Base Price', 'Tax (10%)', 'Service Fee', 'Total Paid', 'Provider Assigned', 'Address']
+    const csvRows = filteredBookings.map(b => {
+      // Safely convert to Number
+      const basePrice = Number(b.price || b.services?.price || 0);
+      const tax = Number(b.tax_amount || 0);
+      const fee = Number(b.service_charge || 0);
+      const total = basePrice + tax + fee;
+
+      return [
+        b.id,
+        `"${b.service_name || b.services?.name || 'Unknown'}"`,
+        new Date(b.booking_date).toLocaleDateString(),
+        new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+        b.status,
+        basePrice.toFixed(2),
+        tax.toFixed(2),
+        fee.toFixed(2),
+        total.toFixed(2),
+        `"${b.stylist?.full_name || 'Unassigned'}"`,
+        `"${b.address || ''}"`
+      ]
+    })
 
     const csvContent = [headers.join(','), ...csvRows.map(row => row.join(','))].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     const url = URL.createObjectURL(blob)
     link.setAttribute('href', url)
-    link.setAttribute('download', `Bookings_Export_${new Date().toISOString().split('T')[0]}.csv`)
+    link.setAttribute('download', `Bookings_Financial_Export_${new Date().toISOString().split('T')[0]}.csv`)
     link.style.visibility = 'hidden'
     document.body.appendChild(link)
     link.click()
@@ -130,7 +141,7 @@ export default function AdminBookingsPage() {
             onClick={exportToCSV}
             className="px-4 py-2 bg-[#E6F4EA] text-[#0B3D2E] font-bold rounded-xl border border-green-200 hover:bg-green-100 transition flex items-center gap-2 text-sm"
           >
-            <span>📥</span> Export CSV
+            <span>📥</span> Export Accounting CSV
           </button>
         </div>
       </div>
@@ -181,14 +192,17 @@ export default function AdminBookingsPage() {
                   filteredBookings.map((b) => (
                     <tr key={b.id} className="hover:bg-gray-50 transition duration-200 group">
                       <td className="p-6">
-                        <p className="font-bold text-[#1A1A1A]">{b.services?.name || b.service_name || 'Premium Service'}</p>
+                        <div className="flex items-center gap-2">
+                           <p className="font-bold text-[#1A1A1A]">{b.service_name || b.services?.name || 'Premium Service'}</p>
+                           {b.is_prime_member && <span title="Prime Member" className="text-sm drop-shadow-sm">⭐</span>}
+                        </div>
                         <p className="text-xs text-gray-400 font-mono mt-1">ID: #{b.id}</p>
                       </td>
                       <td className="p-6">
                         <div className="flex items-center gap-2 font-bold text-[#0B3D2E]">
                           <span>{new Date(b.booking_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
                           <span className="text-gray-300">|</span>
-                          <span className="text-[#D4AF37]">{new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                          <span className="text-[#D4AF37]">{b.booking_time_slot || new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                         </div>
                         {b.location_type && (
                           <div className="mt-1 text-xs font-bold text-gray-500 flex items-center gap-1">
@@ -197,7 +211,6 @@ export default function AdminBookingsPage() {
                         )}
                       </td>
                       
-                      {/* --- NEW PROVIDER COLUMN --- */}
                       <td className="p-6">
                         {b.stylist ? (
                           <div className="flex items-center gap-3">
@@ -248,7 +261,10 @@ export default function AdminBookingsPage() {
             
             <div className="p-6 bg-[#0B3D2E] text-white flex justify-between items-center shrink-0">
               <div>
-                <h2 className="text-xl font-bold">Booking #{selectedBooking.id}</h2>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  Booking #{selectedBooking.id}
+                  {selectedBooking.is_prime_member && <span title="Prime Member">⭐</span>}
+                </h2>
                 <p className="text-[#D4AF37] text-sm font-bold uppercase tracking-wider mt-1">{selectedBooking.status}</p>
               </div>
               <button onClick={closeDrawer} className="text-white hover:text-[#D4AF37] text-3xl leading-none">&times;</button>
@@ -256,35 +272,50 @@ export default function AdminBookingsPage() {
 
             <div className="p-6 flex-1 overflow-y-auto space-y-8 bg-gray-50">
               
+              {/* --- EXACT FINANCIAL BREAKDOWN FROM DB --- */}
               <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Order Summary</h3>
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Financial Breakdown</h3>
                 <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+                  
+                  {/* Base Price - SAFELY WRAPPED IN NUMBER() */}
                   <div className="flex justify-between items-center">
-                    <p className="font-bold text-lg text-[#0B3D2E]">{selectedBooking.services?.name || selectedBooking.service_name}</p>
-                    <span className="text-[#D4AF37] font-black">${selectedBooking.services?.price || selectedBooking.price}</span>
+                    <p className="font-bold text-gray-600">{selectedBooking.service_name || selectedBooking.services?.name}</p>
+                    <span className="font-bold text-gray-800">${Number(selectedBooking.price || selectedBooking.services?.price || 0).toFixed(2)}</span>
                   </div>
                   
+                  {/* Tax - SAFELY WRAPPED IN NUMBER() */}
                   <div className="flex justify-between items-center text-sm text-gray-500">
-                    <span>Tax & Fees</span>
-                    <span>+ ${( (selectedBooking.services?.price || selectedBooking.price) * 0.10 ).toFixed(2)}</span>
+                    <span>Tax (10%)</span>
+                    <span>+ ${Number(selectedBooking.tax_amount || 0).toFixed(2)}</span>
                   </div>
-                  {selectedBooking.is_prime && (
-                    <div className="flex justify-between items-center text-sm text-green-600 font-bold">
-                      <span>Prime Service Fee Waiver</span>
-                      <span>-$5.00</span>
-                    </div>
-                  )}
+
+                  {/* Service Fee / Prime Logic - SAFELY WRAPPED IN NUMBER() */}
+                  <div className="flex justify-between items-center text-sm">
+                    <span className={selectedBooking.is_prime_member ? "text-green-600 font-bold" : "text-gray-500"}>
+                      {selectedBooking.is_prime_member ? '⭐ Prime Fee Waiver' : 'Platform Service Fee'}
+                    </span>
+                    <span className={selectedBooking.is_prime_member ? "text-green-600 font-bold" : "text-gray-500"}>
+                      {selectedBooking.is_prime_member ? "WAIVED" : `+ $${Number(selectedBooking.service_charge || 0).toFixed(2)}`}
+                    </span>
+                  </div>
                   
+                  {/* Total Calculation - SAFELY WRAPPED IN NUMBER() */}
                   <div className="pt-3 border-t border-gray-100 flex justify-between items-center font-black text-[#0B3D2E] text-xl">
                     <span>Total Paid</span>
-                    <span>${( ((selectedBooking.services?.price || selectedBooking.price) * 1.10) - (selectedBooking.is_prime ? 5 : 0) ).toFixed(2)}</span>
+                    <span>
+                      ${(
+                        Number(selectedBooking.price || selectedBooking.services?.price || 0) + 
+                        Number(selectedBooking.tax_amount || 0) + 
+                        Number(selectedBooking.service_charge || 0)
+                      ).toFixed(2)}
+                    </span>
                   </div>
                 </div>
               </div>
 
               <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Logistics</h3>
-                <div className="space-y-4">
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Logistics & Location</h3>
+                <div className="space-y-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
                   <div className="flex gap-3 items-center">
                     <span className="text-xl">{selectedBooking.location_type === 'Van' ? '🚐' : '🏠'}</span>
                     <p className="font-bold text-[#1A1A1A]">{selectedBooking.location_type === 'Van' ? 'Luxury Van Service' : 'In-Home Service'}</p>
@@ -293,17 +324,22 @@ export default function AdminBookingsPage() {
                     <span className="text-xl">📅</span>
                     <div>
                       <p className="font-bold text-[#1A1A1A]">{new Date(selectedBooking.booking_date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                      <p className="text-gray-500">{new Date(selectedBooking.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                      <p className="text-gray-500 font-medium">{selectedBooking.booking_time_slot || new Date(selectedBooking.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                     </div>
                   </div>
                   <div className="flex gap-3">
                     <span className="text-xl">📍</span>
-                    <p className="font-medium text-gray-600">{selectedBooking.address}</p>
+                    <p className="font-medium text-gray-600 text-sm leading-relaxed">{selectedBooking.address}</p>
                   </div>
+                  {/* GPS Warning if missing */}
+                  {(!selectedBooking.latitude || !selectedBooking.longitude) && (
+                    <div className="mt-2 bg-yellow-50 text-yellow-800 text-[10px] p-2 rounded-lg font-bold">
+                       ⚠️ Exact GPS coordinates not captured for this booking.
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* --- NEW PROVIDER DETAILS CARD --- */}
               <div>
                 <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Assigned Provider</h3>
                 {selectedBooking.stylist ? (
@@ -330,7 +366,6 @@ export default function AdminBookingsPage() {
                   </div>
                 )}
                 
-                {/* Proof Photo for Completed Jobs */}
                 {selectedBooking.status === 'completed' && selectedBooking.proof_photo_url && (
                   <div className="mt-4 bg-white p-2 rounded-2xl border border-gray-100 shadow-sm">
                     <p className="text-xs font-bold text-gray-500 uppercase mb-2 px-2 pt-2">Completion Proof</p>
