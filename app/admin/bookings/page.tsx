@@ -5,77 +5,148 @@ import { supabase } from '../../supabaseClient'
 export default function AdminBookingsPage() {
   const [bookings, setBookings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('all') // 'all', 'pending', 'confirmed', 'completed', 'cancelled'
+  
+  // Filters
+  const [activeTab, setActiveTab] = useState('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [dateFilter, setDateFilter] = useState('')
+
+  // Drawer State
+  const [selectedBooking, setSelectedBooking] = useState<any>(null)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   async function fetchBookings() {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*, services(name, price)')
-      .order('booking_date', { ascending: false })
+    
+    // Fetch bookings and providers at the same time
+    const [bookingsRes, providersRes] = await Promise.all([
+      supabase.from('bookings').select('*, services(name, price, duration_minutes)').order('booking_date', { ascending: false }),
+      supabase.from('providers').select('*')
+    ])
 
-    if (!error && data) {
-      setBookings(data)
+    if (bookingsRes.data) {
+      // Map the provider's full details into the booking object
+      const enhancedBookings = bookingsRes.data.map(b => {
+        const stylistId = b.assigned_stylist_id || b.stylist_id // Check both just in case
+        const assignedStylist = providersRes.data?.find(p => p.id === stylistId)
+        return { ...b, stylist: assignedStylist }
+      })
+      setBookings(enhancedBookings)
     }
     setLoading(false)
   }
 
-  useEffect(() => {
-    fetchBookings()
-  }, [])
+  useEffect(() => { fetchBookings() }, [])
 
-  // Quick Action to update the status of a booking
   async function updateStatus(id: number, newStatus: string) {
-    if (confirm(`Are you sure you want to mark this booking as ${newStatus.toUpperCase()}?`)) {
-      const { error } = await supabase
-        .from('bookings')
-        .update({ status: newStatus })
-        .eq('id', id)
-
-      if (error) {
-        alert("Error updating status: " + error.message)
-      } else {
-        fetchBookings() // Refresh the list
+    if (confirm(`Mark this booking as ${newStatus.toUpperCase()}?`)) {
+      await supabase.from('bookings').update({ status: newStatus }).eq('id', id)
+      fetchBookings() 
+      if (selectedBooking && selectedBooking.id === id) {
+        setSelectedBooking({ ...selectedBooking, status: newStatus })
       }
     }
   }
 
-  // Filter the bookings based on the selected tab
-  const filteredBookings = activeTab === 'all' 
-    ? bookings 
-    : bookings.filter(b => b.status === activeTab)
+  function openDrawer(booking: any) {
+    setSelectedBooking(booking)
+    setIsDrawerOpen(true)
+  }
 
-  if (loading) return <div className="p-10 text-center text-[#0B3D2E] font-bold">Loading Bookings...</div>
+  function closeDrawer() {
+    setIsDrawerOpen(false)
+    setTimeout(() => setSelectedBooking(null), 300) 
+  }
+
+  // --- Filtering Logic ---
+  const filteredBookings = bookings.filter(b => {
+    const matchesTab = activeTab === 'all' || b.status === activeTab;
+    const searchString = searchQuery.toLowerCase();
+    const matchesSearch = 
+      b.id.toString().includes(searchString) || 
+      (b.services?.name || '').toLowerCase().includes(searchString) ||
+      (b.stylist?.full_name || '').toLowerCase().includes(searchString) || // Search by Stylist Name
+      (b.address || '').toLowerCase().includes(searchString);
+    const matchesDate = dateFilter === '' || b.booking_date.startsWith(dateFilter);
+
+    return matchesTab && matchesSearch && matchesDate;
+  });
+
+  // --- CSV Export Logic ---
+  function exportToCSV() {
+    const headers = ['Booking ID', 'Service', 'Price', 'Date', 'Time', 'Status', 'Address', 'Provider Assigned']
+    const csvRows = filteredBookings.map(b => [
+      b.id,
+      `"${b.services?.name || 'Unknown'}"`,
+      b.services?.price || 0,
+      new Date(b.booking_date).toLocaleDateString(),
+      new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+      b.status,
+      `"${b.address || ''}"`,
+      `"${b.stylist?.full_name || 'Unassigned'}"`
+    ])
+
+    const csvContent = [headers.join(','), ...csvRows.map(row => row.join(','))].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `Bookings_Export_${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 relative">
       
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-[#0B3D2E]">Booking Management</h1>
           <p className="text-gray-500 mt-1">Review, approve, and track all customer appointments.</p>
         </div>
+        
+        {/* Controls */}
+        <div className="flex flex-wrap gap-3">
+          <input 
+            type="date" 
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#D4AF37] outline-none text-gray-600 text-sm"
+          />
+          <div className="relative">
+            <span className="absolute left-3 top-2.5 text-gray-400">🔍</span>
+            <input 
+              type="text" 
+              placeholder="Search ID, Service, Stylist..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full sm:w-64 pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#D4AF37] outline-none text-sm"
+            />
+          </div>
+          <button 
+            onClick={exportToCSV}
+            className="px-4 py-2 bg-[#E6F4EA] text-[#0B3D2E] font-bold rounded-xl border border-green-200 hover:bg-green-100 transition flex items-center gap-2 text-sm"
+          >
+            <span>📥</span> Export CSV
+          </button>
+        </div>
       </div>
 
-      {/* Custom Tab Switcher */}
+      {/* Tabs */}
       <div className="bg-white p-1.5 rounded-2xl shadow-sm border border-gray-100 inline-flex flex-wrap gap-1">
         {['all', 'pending', 'confirmed', 'completed', 'cancelled'].map((tab) => (
           <button 
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-6 py-2.5 rounded-xl text-sm font-bold capitalize transition duration-300 ${
-              activeTab === tab 
-                ? 'bg-[#0B3D2E] text-[#D4AF37] shadow-md' 
-                : 'text-gray-500 hover:bg-gray-50'
+            key={tab} onClick={() => setActiveTab(tab)}
+            className={`px-6 py-2 rounded-xl text-sm font-bold capitalize transition duration-300 ${
+              activeTab === tab ? 'bg-[#0B3D2E] text-[#D4AF37] shadow-md' : 'text-gray-500 hover:bg-gray-50'
             }`}
           >
             {tab}
-            {/* Show count badges for specific tabs */}
             {tab !== 'all' && (
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] ${
-                activeTab === tab ? 'bg-[#D4AF37] text-[#0B3D2E]' : 'bg-gray-200 text-gray-500'
-              }`}>
+              <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] ${activeTab === tab ? 'bg-[#D4AF37] text-[#0B3D2E]' : 'bg-gray-200 text-gray-500'}`}>
                 {bookings.filter(b => b.status === tab).length}
               </span>
             )}
@@ -83,98 +154,211 @@ export default function AdminBookingsPage() {
         ))}
       </div>
 
-      {/* Bookings Table */}
-      <div className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
-            <thead className="bg-[#F8F9FA] text-[#0B3D2E] text-xs uppercase tracking-widest font-bold border-b border-gray-100">
-              <tr>
-                <th className="p-6">Service details</th>
-                <th className="p-6">Schedule & Location</th>
-                <th className="p-6">Status</th>
-                <th className="p-6 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filteredBookings.length === 0 ? (
+      {/* Table Content */}
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        {loading ? (
+           <div className="p-10 text-center text-gray-500 font-bold">Loading Bookings...</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[900px]">
+              <thead className="bg-[#F8F9FA] text-[#0B3D2E] text-xs uppercase tracking-widest font-bold border-b border-gray-100">
                 <tr>
-                  <td colSpan={4} className="p-12 text-center text-gray-400 font-medium">
-                    No bookings found for this category.
-                  </td>
+                  <th className="p-6">Service details</th>
+                  <th className="p-6">Schedule</th>
+                  <th className="p-6">Assigned Provider</th>
+                  <th className="p-6">Status</th>
+                  <th className="p-6 text-right">Actions</th>
                 </tr>
-              ) : (
-                filteredBookings.map((b) => (
-                  <tr key={b.id} className="hover:bg-gray-50/50 transition duration-200 group">
-                    
-                    {/* Service & Price */}
-                    <td className="p-6">
-                      <p className="font-bold text-[#1A1A1A] text-lg">{b.services?.name || 'Unknown Service'}</p>
-                     <p className="text-[#D4AF37] font-black mt-1">${b.services?.price}</p>
-                      {/* --- THIS LINE IS FIXED --- */}
-                      <p className="text-xs text-gray-400 font-mono mt-2">ID: #{b.id}</p>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filteredBookings.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-12 text-center text-gray-400 font-medium">
+                      {searchQuery || dateFilter ? 'No bookings match your search filters.' : 'No bookings found.'}
                     </td>
-
-                    {/* Date & Location */}
-                    <td className="p-6">
-                      <div className="flex items-center gap-2 font-bold text-[#0B3D2E] mb-1">
-                        <span>📅</span>
-                        <span>{new Date(b.booking_date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                        <span className="text-gray-300">|</span>
-                        <span className="text-[#D4AF37]">{new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                      </div>
-                      <div className="flex items-start gap-2 mt-2">
-                        <span className="text-gray-400 text-sm">📍</span>
-                        <p className="text-sm text-gray-500 max-w-xs leading-snug">{b.address}</p>
-                      </div>
-                    </td>
-
-                    {/* Status Pill */}
-                    <td className="p-6">
-                      <span className={`px-4 py-1.5 inline-flex text-xs leading-5 font-bold rounded-full uppercase tracking-wider
-                        ${b.status === 'confirmed' ? 'bg-[#E6F4EA] text-green-800 border border-green-200' : 
-                          b.status === 'pending' ? 'bg-yellow-50 text-yellow-800 border border-yellow-200' : 
-                          b.status === 'completed' ? 'bg-gray-100 text-gray-600 border border-gray-200' : 
-                          'bg-red-50 text-red-800 border border-red-200'}`}>
-                        {b.status}
-                      </span>
-                      {b.status === 'cancelled' && b.cancellation_reason && (
-                        <p className="text-xs text-red-500 mt-2 font-medium max-w-[150px]">
-                          Reason: {b.cancellation_reason}
-                        </p>
-                      )}
-                    </td>
-
-                    {/* Action Buttons */}
-                    <td className="p-6 text-right space-x-2">
-                      {b.status === 'pending' && (
-                        <>
-                          <button onClick={() => updateStatus(b.id, 'confirmed')} className="px-4 py-2 bg-[#D4AF37] text-[#0B3D2E] font-bold text-sm rounded-lg hover:shadow-md transition">
-                            Approve
-                          </button>
-                          <button onClick={() => updateStatus(b.id, 'cancelled')} className="px-4 py-2 bg-red-50 text-red-600 font-bold text-sm rounded-lg hover:bg-red-100 transition">
-                            Decline
-                          </button>
-                        </>
-                      )}
-
-                      {b.status === 'confirmed' && (
-                        <button onClick={() => updateStatus(b.id, 'completed')} className="px-4 py-2 bg-[#0B3D2E] text-white font-bold text-sm rounded-lg hover:shadow-md transition">
-                          Mark Completed
-                        </button>
-                      )}
-
-                      {(b.status === 'completed' || b.status === 'cancelled') && (
-                        <span className="text-gray-400 text-sm font-medium italic">No actions needed</span>
-                      )}
-                    </td>
-
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  filteredBookings.map((b) => (
+                    <tr key={b.id} className="hover:bg-gray-50 transition duration-200 group">
+                      <td className="p-6">
+                        <p className="font-bold text-[#1A1A1A]">{b.services?.name || b.service_name || 'Premium Service'}</p>
+                        <p className="text-xs text-gray-400 font-mono mt-1">ID: #{b.id}</p>
+                      </td>
+                      <td className="p-6">
+                        <div className="flex items-center gap-2 font-bold text-[#0B3D2E]">
+                          <span>{new Date(b.booking_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                          <span className="text-gray-300">|</span>
+                          <span className="text-[#D4AF37]">{new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                        </div>
+                        {b.location_type && (
+                          <div className="mt-1 text-xs font-bold text-gray-500 flex items-center gap-1">
+                            <span>{b.location_type === 'Van' ? '🚐' : '🏠'}</span> {b.location_type}
+                          </div>
+                        )}
+                      </td>
+                      
+                      {/* --- NEW PROVIDER COLUMN --- */}
+                      <td className="p-6">
+                        {b.stylist ? (
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden shrink-0 border border-gray-300">
+                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${b.stylist.full_name}&backgroundColor=0B3D2E&textColor=ffffff`} alt="avatar" className="w-full h-full object-cover" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-[#0B3D2E] leading-tight">{b.stylist.full_name}</p>
+                              <p className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">{b.stylist.provider_type}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs px-3 py-1 bg-gray-100 text-gray-500 font-bold rounded-full italic">Unassigned</span>
+                        )}
+                      </td>
+
+                      <td className="p-6">
+                        <span className={`px-3 py-1 inline-flex text-xs font-bold rounded-full uppercase tracking-wider
+                          ${b.status === 'confirmed' ? 'bg-[#E6F4EA] text-green-800' : 
+                            b.status === 'pending' ? 'bg-yellow-50 text-yellow-800' : 
+                            b.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-red-50 text-red-800'}`}>
+                          {b.status}
+                        </span>
+                      </td>
+                      <td className="p-6 text-right">
+                        <button 
+                          onClick={() => openDrawer(b)}
+                          className="px-4 py-2 text-sm font-bold text-[#0B3D2E] bg-gray-100 rounded-lg group-hover:bg-[#D4AF37] group-hover:text-white transition"
+                        >
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+
+      {/* --- SLIDE-OUT DRAWER --- */}
+      {isDrawerOpen && selectedBooking && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeDrawer}></div>
+          
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+            
+            <div className="p-6 bg-[#0B3D2E] text-white flex justify-between items-center shrink-0">
+              <div>
+                <h2 className="text-xl font-bold">Booking #{selectedBooking.id}</h2>
+                <p className="text-[#D4AF37] text-sm font-bold uppercase tracking-wider mt-1">{selectedBooking.status}</p>
+              </div>
+              <button onClick={closeDrawer} className="text-white hover:text-[#D4AF37] text-3xl leading-none">&times;</button>
+            </div>
+
+            <div className="p-6 flex-1 overflow-y-auto space-y-8 bg-gray-50">
+              
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Order Summary</h3>
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+                  <div className="flex justify-between items-center">
+                    <p className="font-bold text-lg text-[#0B3D2E]">{selectedBooking.services?.name || selectedBooking.service_name}</p>
+                    <span className="text-[#D4AF37] font-black">${selectedBooking.services?.price || selectedBooking.price}</span>
+                  </div>
+                  
+                  <div className="flex justify-between items-center text-sm text-gray-500">
+                    <span>Tax & Fees</span>
+                    <span>+ ${( (selectedBooking.services?.price || selectedBooking.price) * 0.10 ).toFixed(2)}</span>
+                  </div>
+                  {selectedBooking.is_prime && (
+                    <div className="flex justify-between items-center text-sm text-green-600 font-bold">
+                      <span>Prime Service Fee Waiver</span>
+                      <span>-$5.00</span>
+                    </div>
+                  )}
+                  
+                  <div className="pt-3 border-t border-gray-100 flex justify-between items-center font-black text-[#0B3D2E] text-xl">
+                    <span>Total Paid</span>
+                    <span>${( ((selectedBooking.services?.price || selectedBooking.price) * 1.10) - (selectedBooking.is_prime ? 5 : 0) ).toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Logistics</h3>
+                <div className="space-y-4">
+                  <div className="flex gap-3 items-center">
+                    <span className="text-xl">{selectedBooking.location_type === 'Van' ? '🚐' : '🏠'}</span>
+                    <p className="font-bold text-[#1A1A1A]">{selectedBooking.location_type === 'Van' ? 'Luxury Van Service' : 'In-Home Service'}</p>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-xl">📅</span>
+                    <div>
+                      <p className="font-bold text-[#1A1A1A]">{new Date(selectedBooking.booking_date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                      <p className="text-gray-500">{new Date(selectedBooking.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-xl">📍</span>
+                    <p className="font-medium text-gray-600">{selectedBooking.address}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* --- NEW PROVIDER DETAILS CARD --- */}
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Assigned Provider</h3>
+                {selectedBooking.stylist ? (
+                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-3">
+                       <div className="w-12 h-12 rounded-full bg-white border-2 border-blue-200 overflow-hidden shrink-0">
+                         <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${selectedBooking.stylist.full_name}&backgroundColor=0B3D2E&textColor=ffffff`} alt="avatar" />
+                       </div>
+                       <div>
+                         <p className="font-bold text-blue-900">{selectedBooking.stylist.full_name}</p>
+                         <p className="text-xs text-blue-700 font-medium">📞 {selectedBooking.stylist.phone || 'No phone provided'}</p>
+                         <p className="text-[10px] text-blue-600 font-black uppercase tracking-wider mt-1">{selectedBooking.stylist.provider_type}</p>
+                       </div>
+                    </div>
+                    <span className="text-2xl drop-shadow-sm">{selectedBooking.stylist.provider_type === 'Luxury Van' ? '🚐' : '🏠'}</span>
+                  </div>
+                ) : (
+                  <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 text-yellow-800 font-bold text-sm flex items-center gap-3 shadow-sm">
+                     <span className="animate-spin text-xl">⏳</span> 
+                     <div>
+                       <p>Broadcasting to Providers...</p>
+                       <p className="text-xs font-medium mt-1 opacity-80">Waiting for a stylist to accept.</p>
+                     </div>
+                  </div>
+                )}
+                
+                {/* Proof Photo for Completed Jobs */}
+                {selectedBooking.status === 'completed' && selectedBooking.proof_photo_url && (
+                  <div className="mt-4 bg-white p-2 rounded-2xl border border-gray-100 shadow-sm">
+                    <p className="text-xs font-bold text-gray-500 uppercase mb-2 px-2 pt-2">Completion Proof</p>
+                    <img src={selectedBooking.proof_photo_url} alt="Proof" className="w-full h-48 object-cover rounded-xl" />
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Drawer Footer / Actions */}
+            <div className="p-6 border-t border-gray-100 bg-white flex gap-3 shrink-0">
+              {selectedBooking.status === 'pending' && (
+                <>
+                  <button onClick={() => updateStatus(selectedBooking.id, 'cancelled')} className="flex-1 py-3 bg-white border border-red-200 text-red-600 font-bold rounded-xl hover:bg-red-50 transition">Cancel Job</button>
+                </>
+              )}
+              {selectedBooking.status === 'confirmed' && (
+                <button onClick={() => updateStatus(selectedBooking.id, 'completed')} className="w-full py-3 bg-[#0B3D2E] text-white font-bold rounded-xl shadow-md hover:shadow-lg transition">Force Complete (Admin)</button>
+              )}
+              {(selectedBooking.status === 'completed' || selectedBooking.status === 'cancelled') && (
+                <button onClick={closeDrawer} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition">Close Panel</button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   )
