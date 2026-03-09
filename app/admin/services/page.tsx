@@ -20,8 +20,8 @@ export default function AdminServicesPage() {
   const [name, setName] = useState('')
   const [gender, setGender] = useState('Men')
   const [category, setCategory] = useState('') 
-  const [price, setPrice] = useState('')
-  const [duration, setDuration] = useState('')
+  const [price, setPrice] = useState<string | number>('') // Changed to handle both
+  const [duration, setDuration] = useState<string | number>('') // Changed to handle both
   const [imageUrl, setImageUrl] = useState('')
   
   // Image Upload State
@@ -72,13 +72,18 @@ export default function AdminServicesPage() {
     }
 
     if (isEditing && editId) {
-      await supabase.from('services').update(serviceData).eq('id', editId)
+      // 🛠️ UPDATE EXISTING SERVICE
+      const { error } = await supabase.from('services').update(serviceData).eq('id', editId)
+      if (error) alert("Error updating service: " + error.message)
+      else alert("✅ Service updated successfully!")
     } else {
-      await supabase.from('services').insert([serviceData])
+      // ✨ INSERT NEW SERVICE
+      const { error } = await supabase.from('services').insert([serviceData])
+      if (error) alert("Error adding service: " + error.message)
     }
     
     closeDrawer()
-    fetchServices()
+    fetchServices() // Refresh the list!
   }
 
   async function handleDelete(id: number) {
@@ -100,8 +105,8 @@ export default function AdminServicesPage() {
     setName(service.name)
     setGender(service.gender || 'Men')
     setCategory(service.category || '')
-    setPrice(service.price)
-    setDuration(service.duration_minutes)
+    setPrice(service.price) // Load exact price
+    setDuration(service.duration_minutes) // Load exact duration
     setImageUrl(service.image_url || '')
     
     if (service.image_url && service.image_url.includes('supabase')) {
@@ -120,6 +125,7 @@ export default function AdminServicesPage() {
 
   function resetForm() {
     setEditId(null)
+    setIsEditing(false)
     setName('')
     setGender('Men')
     setCategory('')
@@ -188,7 +194,7 @@ export default function AdminServicesPage() {
         ))}
       </div>
 
-      {/* Services Grid (Full Width Now) */}
+      {/* Services Grid */}
       {loading ? (
         <div className="p-10 text-center text-[#0B3D2E] font-bold">Loading Services...</div>
       ) : (
@@ -225,9 +231,14 @@ export default function AdminServicesPage() {
                     <p className="text-2xl font-black text-[#D4AF37]">${s.price}</p>
                   </div>
                   
+                  {/* EDIT AND DELETE BUTTONS */}
                   <div className="mt-6 flex gap-3 border-t border-gray-50 pt-4">
-                    <button onClick={() => openEditDrawer(s)} className="flex-1 py-2 text-sm font-bold text-[#0B3D2E] bg-[#E6F4EA] rounded-xl hover:bg-[#d0ebd6] transition">Edit</button>
-                    <button onClick={() => handleDelete(s.id)} className="flex-1 py-2 text-sm font-bold text-red-600 bg-red-50 rounded-xl hover:bg-red-100 transition">Delete</button>
+                    <button onClick={() => openEditDrawer(s)} className="flex-1 py-2 text-sm font-bold text-[#0B3D2E] bg-[#E6F4EA] rounded-xl hover:bg-[#d0ebd6] transition shadow-sm">
+                      ✏️ Edit
+                    </button>
+                    <button onClick={() => handleDelete(s.id)} className="flex-1 py-2 text-sm font-bold text-red-600 bg-red-50 rounded-xl hover:bg-red-100 transition shadow-sm">
+                      🗑️ Delete
+                    </button>
                   </div>
                 </div>
               </div>
@@ -272,7 +283,7 @@ export default function AdminServicesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Price ($)</label>
-                    <input required type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="0.00" className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[#0B3D2E] focus:bg-white transition font-bold"/>
+                    <input required type="number" step="0.01" value={price} onChange={e => setPrice(e.target.value)} placeholder="0.00" className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[#0B3D2E] focus:bg-white transition font-bold"/>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Time (Mins)</label>
@@ -311,7 +322,7 @@ export default function AdminServicesPage() {
             <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
               <button type="button" onClick={closeDrawer} className="flex-1 py-3 font-bold text-gray-500 bg-white border border-gray-200 rounded-xl hover:bg-gray-100 transition">Cancel</button>
               <button form="service-form" type="submit" disabled={uploading} className="flex-1 py-3 font-bold text-[#0B3D2E] bg-[#D4AF37] rounded-xl shadow-md hover:shadow-lg transition disabled:opacity-50">
-                {isEditing ? 'Save Changes' : 'Create Service'}
+                {isEditing ? '💾 Save Changes' : '✨ Create Service'}
               </button>
             </div>
 
