@@ -4,30 +4,29 @@ import { supabase } from '../../supabaseClient'
 
 export default function AdminBookingsPage() {
   const [bookings, setBookings] = useState<any[]>([])
+  const [providers, setProviders] = useState<any[]>([]) 
   const [loading, setLoading] = useState(true)
   
-  // Filters
+  // 1. 👇 UPGRADED TABS: Changed 'confirmed' to 'active' to cover all moving jobs
   const [activeTab, setActiveTab] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFilter, setDateFilter] = useState('')
 
-  // Drawer State
   const [selectedBooking, setSelectedBooking] = useState<any>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   async function fetchBookings() {
     setLoading(true)
-    
-    // Fetch bookings and providers
     const [bookingsRes, providersRes] = await Promise.all([
       supabase.from('bookings').select('*, services(name, price, duration_minutes)').order('booking_date', { ascending: false }),
       supabase.from('providers').select('*')
     ])
 
+    if (providersRes.data) setProviders(providersRes.data) 
+
     if (bookingsRes.data) {
-      // Map the provider's full details into the booking object
       const enhancedBookings = bookingsRes.data.map(b => {
-        const stylistId = b.assigned_stylist_id || b.stylist_id 
+        const stylistId = b.stylist_id 
         const assignedStylist = providersRes.data?.find(p => p.id === stylistId)
         return { ...b, stylist: assignedStylist }
       })
@@ -48,6 +47,33 @@ export default function AdminBookingsPage() {
     }
   }
 
+  async function assignProvider(bookingId: number, providerId: string) {
+    const provider = providers.find(p => p.id === providerId)
+    if (!provider) return;
+
+    if (confirm(`Assign ${provider.full_name} to this booking?`)) {
+      const updatePayload = {
+        stylist_id: provider.id,
+        stylist_name: provider.full_name,
+        status: 'Accepted' 
+      }
+      const { error } = await supabase.from('bookings').update(updatePayload).eq('id', bookingId)
+
+      if (!error) {
+        fetchBookings() 
+        setSelectedBooking({ 
+          ...selectedBooking, 
+          stylist: provider, 
+          stylist_id: provider.id, 
+          stylist_name: provider.full_name,
+          status: 'Accepted' 
+        })
+      } else {
+        alert("Error assigning provider: " + error.message)
+      }
+    }
+  }
+
   function openDrawer(booking: any) {
     setSelectedBooking(booking)
     setIsDrawerOpen(true)
@@ -58,9 +84,20 @@ export default function AdminBookingsPage() {
     setTimeout(() => setSelectedBooking(null), 300) 
   }
 
-  // --- Filtering Logic ---
+  // 2. 👇 SMART FILTER LOGIC (Bulletproof Case Insensitivity)
+  const getMappedTab = (rawStatus: string) => {
+    const status = (rawStatus || '').toLowerCase()
+    if (['pending', 'paid'].includes(status)) return 'pending'
+    if (['accepted', 'confirmed', 'on the way', 'arrived', 'in progress'].includes(status)) return 'active'
+    if (['completed'].includes(status)) return 'completed'
+    if (['cancelled', 'failed'].includes(status)) return 'cancelled'
+    return 'all' // fallback
+  }
+
   const filteredBookings = bookings.filter(b => {
-    const matchesTab = activeTab === 'all' || b.status === activeTab;
+    const mappedTab = getMappedTab(b.status);
+    const matchesTab = activeTab === 'all' || mappedTab === activeTab;
+    
     const searchString = searchQuery.toLowerCase();
     const matchesSearch = 
       b.id.toString().includes(searchString) || 
@@ -72,11 +109,19 @@ export default function AdminBookingsPage() {
     return matchesTab && matchesSearch && matchesDate;
   });
 
-  // --- UPGRADED CSV EXPORT LOGIC (For Accounting) ---
+  // SMART BADGE COLORS
+  const getBadgeStyle = (rawStatus: string) => {
+    const tab = getMappedTab(rawStatus);
+    if (tab === 'pending') return 'bg-yellow-50 text-yellow-800 border-yellow-200'
+    if (tab === 'active') return 'bg-blue-50 text-blue-800 border-blue-200'
+    if (tab === 'completed') return 'bg-green-50 text-green-800 border-green-200'
+    if (tab === 'cancelled') return 'bg-red-50 text-red-800 border-red-200'
+    return 'bg-gray-100 text-gray-600'
+  }
+
   function exportToCSV() {
     const headers = ['Booking ID', 'Service', 'Date', 'Time', 'Status', 'Base Price', 'Tax (10%)', 'Service Fee', 'Total Paid', 'Provider Assigned', 'Address']
     const csvRows = filteredBookings.map(b => {
-      // Safely convert to Number
       const basePrice = Number(b.price || b.services?.price || 0);
       const tax = Number(b.tax_amount || 0);
       const fee = Number(b.service_charge || 0);
@@ -148,7 +193,8 @@ export default function AdminBookingsPage() {
 
       {/* Tabs */}
       <div className="bg-white p-1.5 rounded-2xl shadow-sm border border-gray-100 inline-flex flex-wrap gap-1">
-        {['all', 'pending', 'confirmed', 'completed', 'cancelled'].map((tab) => (
+        {/* 👇 UPDATED TABS LIST */}
+        {['all', 'pending', 'active', 'completed', 'cancelled'].map((tab) => (
           <button 
             key={tab} onClick={() => setActiveTab(tab)}
             className={`px-6 py-2 rounded-xl text-sm font-bold capitalize transition duration-300 ${
@@ -158,7 +204,7 @@ export default function AdminBookingsPage() {
             {tab}
             {tab !== 'all' && (
               <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] ${activeTab === tab ? 'bg-[#D4AF37] text-[#0B3D2E]' : 'bg-gray-200 text-gray-500'}`}>
-                {bookings.filter(b => b.status === tab).length}
+                {bookings.filter(b => getMappedTab(b.status) === tab).length}
               </span>
             )}
           </button>
@@ -204,9 +250,10 @@ export default function AdminBookingsPage() {
                           <span className="text-gray-300">|</span>
                           <span className="text-[#D4AF37]">{b.booking_time_slot || new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                         </div>
-                        {b.location_type && (
+                        
+                        {b.service_mode && (
                           <div className="mt-1 text-xs font-bold text-gray-500 flex items-center gap-1">
-                            <span>{b.location_type === 'Van' ? '🚐' : '🏠'}</span> {b.location_type}
+                            <span>{b.service_mode === 'Luxury Van' ? '🚐' : '🏠'}</span> {b.service_mode}
                           </div>
                         )}
                       </td>
@@ -228,10 +275,8 @@ export default function AdminBookingsPage() {
                       </td>
 
                       <td className="p-6">
-                        <span className={`px-3 py-1 inline-flex text-xs font-bold rounded-full uppercase tracking-wider
-                          ${b.status === 'confirmed' ? 'bg-[#E6F4EA] text-green-800' : 
-                            b.status === 'pending' ? 'bg-yellow-50 text-yellow-800' : 
-                            b.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-red-50 text-red-800'}`}>
+                        {/* 👇 UPDATED DYNAMIC BADGE */}
+                        <span className={`px-3 py-1 inline-flex text-xs font-bold rounded-full uppercase tracking-wider border ${getBadgeStyle(b.status)}`}>
                           {b.status}
                         </span>
                       </td>
@@ -272,24 +317,20 @@ export default function AdminBookingsPage() {
 
             <div className="p-6 flex-1 overflow-y-auto space-y-8 bg-gray-50">
               
-              {/* --- EXACT FINANCIAL BREAKDOWN FROM DB --- */}
               <div>
                 <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Financial Breakdown</h3>
                 <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
                   
-                  {/* Base Price - SAFELY WRAPPED IN NUMBER() */}
                   <div className="flex justify-between items-center">
                     <p className="font-bold text-gray-600">{selectedBooking.service_name || selectedBooking.services?.name}</p>
                     <span className="font-bold text-gray-800">${Number(selectedBooking.price || selectedBooking.services?.price || 0).toFixed(2)}</span>
                   </div>
                   
-                  {/* Tax - SAFELY WRAPPED IN NUMBER() */}
                   <div className="flex justify-between items-center text-sm text-gray-500">
                     <span>Tax (10%)</span>
                     <span>+ ${Number(selectedBooking.tax_amount || 0).toFixed(2)}</span>
                   </div>
 
-                  {/* Service Fee / Prime Logic - SAFELY WRAPPED IN NUMBER() */}
                   <div className="flex justify-between items-center text-sm">
                     <span className={selectedBooking.is_prime_member ? "text-green-600 font-bold" : "text-gray-500"}>
                       {selectedBooking.is_prime_member ? '⭐ Prime Fee Waiver' : 'Platform Service Fee'}
@@ -299,7 +340,6 @@ export default function AdminBookingsPage() {
                     </span>
                   </div>
                   
-                  {/* Total Calculation - SAFELY WRAPPED IN NUMBER() */}
                   <div className="pt-3 border-t border-gray-100 flex justify-between items-center font-black text-[#0B3D2E] text-xl">
                     <span>Total Paid</span>
                     <span>
@@ -316,10 +356,12 @@ export default function AdminBookingsPage() {
               <div>
                 <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Logistics & Location</h3>
                 <div className="space-y-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                  
                   <div className="flex gap-3 items-center">
-                    <span className="text-xl">{selectedBooking.location_type === 'Van' ? '🚐' : '🏠'}</span>
-                    <p className="font-bold text-[#1A1A1A]">{selectedBooking.location_type === 'Van' ? 'Luxury Van Service' : 'In-Home Service'}</p>
+                    <span className="text-xl">{selectedBooking.service_mode === 'Luxury Van' ? '🚐' : '🏠'}</span>
+                    <p className="font-bold text-[#1A1A1A]">{selectedBooking.service_mode === 'Luxury Van' ? 'Luxury Van Service' : 'In-Home Service'}</p>
                   </div>
+                  
                   <div className="flex gap-3">
                     <span className="text-xl">📅</span>
                     <div>
@@ -331,10 +373,9 @@ export default function AdminBookingsPage() {
                     <span className="text-xl">📍</span>
                     <p className="font-medium text-gray-600 text-sm leading-relaxed">{selectedBooking.address}</p>
                   </div>
-                  {/* GPS Warning if missing */}
                   {(!selectedBooking.latitude || !selectedBooking.longitude) && (
                     <div className="mt-2 bg-yellow-50 text-yellow-800 text-[10px] p-2 rounded-lg font-bold">
-                       ⚠️ Exact GPS coordinates not captured for this booking.
+                        ⚠️ Exact GPS coordinates not captured for this booking.
                     </div>
                   )}
                 </div>
@@ -342,6 +383,7 @@ export default function AdminBookingsPage() {
 
               <div>
                 <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Assigned Provider</h3>
+                
                 {selectedBooking.stylist ? (
                   <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center justify-between shadow-sm">
                     <div className="flex items-center gap-3">
@@ -365,8 +407,26 @@ export default function AdminBookingsPage() {
                      </div>
                   </div>
                 )}
+
+                <div className="mt-3">
+                  <label className="text-[10px] uppercase font-bold text-gray-400 mb-1 block">
+                    {selectedBooking.stylist ? "Change Assigned Stylist" : "Assign a Stylist"}
+                  </label>
+                  <select
+                    className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 focus:ring-2 focus:ring-[#D4AF37] outline-none shadow-sm cursor-pointer"
+                    value={selectedBooking.stylist?.id || ""}
+                    onChange={(e) => assignProvider(selectedBooking.id, e.target.value)}
+                  >
+                    <option value="" disabled>-- Select a Stylist --</option>
+                    {providers.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name} ({p.provider_type || 'Stylist'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 
-                {selectedBooking.status === 'completed' && selectedBooking.proof_photo_url && (
+                {getMappedTab(selectedBooking.status) === 'completed' && selectedBooking.proof_photo_url && (
                   <div className="mt-4 bg-white p-2 rounded-2xl border border-gray-100 shadow-sm">
                     <p className="text-xs font-bold text-gray-500 uppercase mb-2 px-2 pt-2">Completion Proof</p>
                     <img src={selectedBooking.proof_photo_url} alt="Proof" className="w-full h-48 object-cover rounded-xl" />
@@ -378,15 +438,15 @@ export default function AdminBookingsPage() {
 
             {/* Drawer Footer / Actions */}
             <div className="p-6 border-t border-gray-100 bg-white flex gap-3 shrink-0">
-              {selectedBooking.status === 'pending' && (
+              {getMappedTab(selectedBooking.status) === 'pending' && (
                 <>
                   <button onClick={() => updateStatus(selectedBooking.id, 'cancelled')} className="flex-1 py-3 bg-white border border-red-200 text-red-600 font-bold rounded-xl hover:bg-red-50 transition">Cancel Job</button>
                 </>
               )}
-              {selectedBooking.status === 'confirmed' && (
+              {getMappedTab(selectedBooking.status) === 'active' && (
                 <button onClick={() => updateStatus(selectedBooking.id, 'completed')} className="w-full py-3 bg-[#0B3D2E] text-white font-bold rounded-xl shadow-md hover:shadow-lg transition">Force Complete (Admin)</button>
               )}
-              {(selectedBooking.status === 'completed' || selectedBooking.status === 'cancelled') && (
+              {(getMappedTab(selectedBooking.status) === 'completed' || getMappedTab(selectedBooking.status) === 'cancelled') && (
                 <button onClick={closeDrawer} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition">Close Panel</button>
               )}
             </div>

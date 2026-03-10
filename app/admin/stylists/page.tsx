@@ -2,80 +2,48 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 
-export default function FleetManagementPage() {
+export default function FleetManagerPage() {
   const [providers, setProviders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
 
-  const [newName, setNewName] = useState('')
-  const [newPhone, setNewPhone] = useState('')
-  const [newEmail, setNewEmail] = useState('')
-  const [providerType, setProviderType] = useState('In-Home Stylist') 
-  const [isAdding, setIsAdding] = useState(false)
-
-  // Drawer & History State
+  // --- DRAWER & FINANCIAL STATE ---
   const [selectedProvider, setSelectedProvider] = useState<any>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [providerBookings, setProviderBookings] = useState<any[]>([])
-  const [loadingBookings, setLoadingBookings] = useState(false)
-
-  useEffect(() => { fetchProviders() }, [])
+  const [providerPayouts, setProviderPayouts] = useState<any[]>([])
+  const [detailsLoading, setDetailsLoading] = useState(false)
 
   async function fetchProviders() {
     setLoading(true)
-    const { data, error } = await supabase.from('providers').select('*').order('created_at', { ascending: false })
-    if (!error) setProviders(data || [])
+    const { data, error } = await supabase
+      .from('providers')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (data) setProviders(data)
+    if (error) console.error("Error fetching fleet:", error)
     setLoading(false)
   }
 
-  // --- FETCH JOB HISTORY FOR SELECTED PROVIDER ---
-  async function fetchProviderHistory(providerId: string) {
-    setLoadingBookings(true)
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*, services(name, price)')
-      .eq('assigned_stylist_id', providerId)
-      .order('booking_date', { ascending: false })
+  useEffect(() => { fetchProviders() }, [])
 
-    if (!error && data) {
-      setProviderBookings(data)
-    } else {
-      setProviderBookings([])
-    }
-    setLoadingBookings(false)
-  }
-
-  async function addProvider(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newName) return alert("Name is required")
-
-    const dummyId = crypto.randomUUID() 
-
-    await supabase.from('providers').insert({
-      id: dummyId,
-      full_name: newName,
-      phone: newPhone,
-      email: newEmail,
-      provider_type: providerType, 
-      is_online: false,          
-    })
-
-    setNewName(''); setNewPhone(''); setNewEmail(''); setProviderType('In-Home Stylist')
-    setIsAdding(false)
-    fetchProviders()
-  }
-
-  async function deleteProvider(id: string) {
-    if(!confirm("Are you sure you want to remove this provider permanently?")) return
-    await supabase.from('providers').delete().eq('id', id)
-    fetchProviders()
-  }
-
-  function openDrawer(provider: any) {
+  // --- OPEN DRAWER & FETCH FINANCIAL HISTORY ---
+  async function openProviderDetails(provider: any) {
     setSelectedProvider(provider)
     setIsDrawerOpen(true)
-    // Fetch their history the moment the drawer opens!
-    fetchProviderHistory(provider.id)
+    setDetailsLoading(true)
+
+    // Fetch BOTH their job history and their withdrawal history
+    const [bookingsRes, payoutsRes] = await Promise.all([
+      supabase.from('bookings').select('*').eq('stylist_id', provider.id).order('created_at', { ascending: false }),
+      supabase.from('payout_requests').select('*').eq('provider_id', provider.id).order('created_at', { ascending: false })
+    ])
+
+    if (bookingsRes.data) setProviderBookings(bookingsRes.data)
+    if (payoutsRes.data) setProviderPayouts(payoutsRes.data)
+    
+    setDetailsLoading(false)
   }
 
   function closeDrawer() {
@@ -83,228 +51,236 @@ export default function FleetManagementPage() {
     setTimeout(() => {
       setSelectedProvider(null)
       setProviderBookings([])
+      setProviderPayouts([])
     }, 300)
   }
 
-  const filteredProviders = providers.filter(p =>
-    (p.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.provider_type || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.phone || '').includes(searchQuery)
-  )
+  // --- ADMIN PAYOUT ACTION ---
+  async function handlePayoutAction(payoutId: number, newStatus: string) {
+    if (confirm(`Mark this withdrawal request as ${newStatus}?`)) {
+      const { error } = await supabase.from('payout_requests').update({ status: newStatus }).eq('id', payoutId)
+      
+      if (!error) {
+        // Refresh the payouts list instantly
+        const updatedPayouts = providerPayouts.map(p => p.id === payoutId ? { ...p, status: newStatus } : p)
+        setProviderPayouts(updatedPayouts)
+      } else {
+        alert("Error updating payout: " + error.message)
+      }
+    }
+  }
 
-  // Calculate earnings dynamically from completed jobs
-  const totalEarned = providerBookings
-    .filter(b => b.status === 'completed')
-    .reduce((sum, b) => sum + (b.services?.price || 0), 0)
+  // --- FINANCIAL CALCULATIONS (REAL-TIME) ---
+  const completedJobs = providerBookings.filter(b => (b.status || '').toLowerCase() === 'completed')
+  
+  const totalEarned = completedJobs.reduce((sum, job) => sum + Number(job.price || 0), 0)
+  const totalWithdrawn = providerPayouts.filter(p => p.status === 'Paid').reduce((sum, p) => sum + Number(p.amount || 0), 0)
+  const totalPendingPayouts = providerPayouts.filter(p => p.status === 'Pending').reduce((sum, p) => sum + Number(p.amount || 0), 0)
+  
+  // What is actually left in their digital wallet right now:
+  const availableBalance = totalEarned - totalWithdrawn - totalPendingPayouts
+
+  // Filter logic for the search bar
+  const filteredProviders = providers.filter(p => 
+    (p.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (p.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (p.provider_type || '').toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   return (
     <div className="space-y-8 relative">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      
+      {/* Page Header */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-[#0B3D2E]">Fleet Management</h1>
-          <p className="text-gray-500 mt-1">Manage your registered App Providers, Vans, and Stylists.</p>
+          <h1 className="text-3xl font-bold text-[#0B3D2E]">Fleet & Stylist Manager</h1>
+          <p className="text-gray-500 mt-1">Monitor your vans, home stylists, and manage their payouts.</p>
         </div>
-
-        <div className="flex gap-4">
-          <div className="relative w-full md:w-64">
-            <span className="absolute left-3 top-2.5 text-gray-400">🔍</span>
-            <input
-              type="text"
-              placeholder="Search providers..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#D4AF37] outline-none shadow-sm"
-            />
-          </div>
-          <button onClick={() => setIsAdding(!isAdding)} className="bg-[#0B3D2E] text-white px-6 py-2.5 rounded-xl font-bold hover:shadow-lg transition">
-            {isAdding ? 'Cancel' : '+ Add Provider'}
-          </button>
+        
+        <div className="relative w-full lg:w-72">
+          <span className="absolute left-3 top-2.5 text-gray-400">🔍</span>
+          <input 
+            type="text" 
+            placeholder="Search name, email, or type..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#D4AF37] outline-none text-sm"
+          />
         </div>
       </div>
 
-      {isAdding && (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#D4AF37] animate-in fade-in slide-in-from-top-4">
-          <h2 className="text-lg font-bold text-[#0B3D2E] mb-4">Add Provider Manually</h2>
-          <form onSubmit={addProvider} className="flex flex-wrap gap-4 items-end">
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Full Name</label>
-              <input required className="w-full border border-gray-200 p-3 rounded-xl focus:border-[#0B3D2E] outline-none" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. John Doe" />
-            </div>
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Phone</label>
-              <input className="w-full border border-gray-200 p-3 rounded-xl focus:border-[#0B3D2E] outline-none" value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="555-0000" />
-            </div>
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
-              <input type="email" className="w-full border border-gray-200 p-3 rounded-xl focus:border-[#0B3D2E] outline-none" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="stylist@example.com" />
-            </div>
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Service Fleet Type</label>
-              <select className="w-full border border-gray-200 p-3 rounded-xl focus:border-[#0B3D2E] outline-none bg-white font-medium text-[#0B3D2E]" value={providerType} onChange={e => setProviderType(e.target.value)}>
-                <option value="In-Home Stylist">In-Home Stylist</option>
-                <option value="Luxury Van">Luxury Van</option>
-              </select>
-            </div>
-            <button type="submit" className="bg-[#D4AF37] text-[#0B3D2E] px-8 py-3 rounded-xl font-bold shadow-md hover:bg-[#c29f31] transition">
-              Save Profile
-            </button>
-          </form>
-        </div>
-      )}
-
+      {/* Fleet Grid */}
       {loading ? (
-        <div className="text-center p-10 text-gray-500 font-bold">Loading Fleet...</div>
+        <div className="p-10 text-center text-gray-500 font-bold bg-white rounded-3xl border border-gray-100">Loading Fleet Data...</div>
+      ) : filteredProviders.length === 0 ? (
+        <div className="p-10 text-center text-gray-500 font-bold bg-white rounded-3xl border border-gray-100">No providers found.</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 md:gap-6 gap-4">
-          {filteredProviders.length === 0 ? (
-            <div className="col-span-full p-10 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
-              No providers registered yet.
-            </div>
-          ) : (
-            filteredProviders.map(p => {
-              const isVan = p.provider_type === 'Luxury Van';
-              return (
-                <div key={p.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition flex flex-col items-center text-center relative group">
-                  <button onClick={() => deleteProvider(p.id)} className="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100" title="Remove Provider">🗑️</button>
-
-                  <div className="relative w-20 h-20 mb-4">
-                    <div className="w-full h-full bg-gray-100 rounded-full overflow-hidden border-2 border-gray-200">
-                      <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${p.full_name || 'U'}&backgroundColor=0B3D2E&textColor=ffffff`} alt={p.full_name} className="w-full h-full object-cover" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredProviders.map(provider => (
+            <div 
+              key={provider.id} 
+              onClick={() => openProviderDetails(provider)}
+              className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-lg hover:border-[#D4AF37] transition cursor-pointer group"
+            >
+              <div className="p-6 border-b border-gray-50 flex justify-between items-start">
+                <div className="flex gap-4 items-center">
+                  <div className="relative">
+                    <div className="w-14 h-14 rounded-full bg-gray-100 border-2 border-gray-200 overflow-hidden">
+                      <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${provider.full_name}&backgroundColor=0B3D2E&textColor=ffffff`} alt="avatar" />
                     </div>
-                    <span className={`absolute bottom-0 right-0 w-5 h-5 border-2 border-white rounded-full ${p.is_online ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-gray-400'}`}></span>
+                    <div className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-white ${provider.is_online ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                   </div>
-
-                  <h3 className="font-bold text-xl text-[#0B3D2E]">{p.full_name || 'Unknown'}</h3>
-                  
-                  <div className="mt-2">
-                    {isVan ? (
-                       <span className="px-3 py-1 bg-blue-50 text-blue-700 text-[10px] font-black rounded-full uppercase tracking-wider border border-blue-200 flex items-center gap-1">
-                         <span>🚐</span> Luxury Van
-                       </span>
-                    ) : (
-                       <span className="px-3 py-1 bg-[#E6F4EA] text-[#0B3D2E] text-[10px] font-black rounded-full uppercase tracking-wider border border-green-200 flex items-center gap-1">
-                         <span>🏠</span> In-Home Stylist
-                       </span>
-                    )}
+                  <div>
+                    <h3 className="font-bold text-lg text-[#0B3D2E] leading-tight group-hover:text-[#D4AF37] transition">{provider.full_name}</h3>
+                    <p className="text-xs text-gray-400 font-medium mt-0.5">{provider.email}</p>
                   </div>
-
-                  <button 
-                    onClick={() => openDrawer(p)} 
-                    className="w-full mt-6 py-2.5 bg-gray-50 text-[#0B3D2E] text-sm font-bold border border-gray-200 rounded-xl hover:bg-gray-100 transition"
-                  >
-                    View Full Profile
-                  </button>
                 </div>
-              )
-            })
-          )}
+              </div>
+
+              <div className="p-6 bg-gray-50/50 space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-gray-400 uppercase">Type</span>
+                  <span className={`px-3 py-1 text-xs font-bold rounded-full ${provider.provider_type === 'Luxury Van' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                    {provider.provider_type === 'Luxury Van' ? '🚐 Luxury Van' : '🏠 In-Home'}
+                  </span>
+                </div>
+
+                <div className="pt-4 border-t border-gray-200 flex justify-between items-center">
+                  <span className="text-sm font-bold text-[#0B3D2E]">View Wallet & History &rarr;</span>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* --- DRAWER COMPONENT --- */}
+      {/* --- FINANCIAL DETAILS SLIDE-OUT DRAWER --- */}
       {isDrawerOpen && selectedProvider && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeDrawer}></div>
-          <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+          
+          <div className="relative w-full max-w-lg bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
             
-            <div className="p-8 bg-[#0B3D2E] text-white flex flex-col items-center relative text-center shrink-0">
-              <button onClick={closeDrawer} className="absolute top-4 right-6 text-white hover:text-[#D4AF37] text-3xl">&times;</button>
-              
-              <div className="relative w-24 h-24 mb-4">
-                <div className="w-full h-full bg-white rounded-full overflow-hidden border-4 border-[#D4AF37] shadow-lg">
-                  <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${selectedProvider.full_name || 'U'}&backgroundColor=0B3D2E&textColor=ffffff`} alt="Avatar" className="w-full h-full object-cover" />
-                </div>
-                {selectedProvider.is_online && <span className="absolute bottom-1 right-1 w-6 h-6 bg-green-500 border-4 border-[#0B3D2E] rounded-full"></span>}
-              </div>
-              
-              <h2 className="text-2xl font-bold">{selectedProvider.full_name || 'No Name'}</h2>
-              <p className="text-gray-300 text-xs font-mono mt-1 mb-3">ID: {selectedProvider.id.substring(0,8)}...</p>
-              
-              <span className="px-4 py-1.5 bg-white/20 rounded-full text-xs font-bold uppercase tracking-widest text-[#D4AF37]">
-                Fleet: {selectedProvider.provider_type}
-              </span>
-            </div>
-            
-            <div className="p-6 flex-1 overflow-y-auto space-y-6 bg-gray-50">
-              
-              {/* --- EARNINGS DASHBOARD --- */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
-                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Total Earnings</h3>
-                 <div className="text-4xl font-black text-green-600">
-                   ${totalEarned.toFixed(2)}
+            {/* Drawer Header */}
+            <div className="p-6 bg-[#0B3D2E] text-white flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-4">
+                 <div className="w-12 h-12 rounded-full bg-white border-2 border-[#D4AF37] overflow-hidden shrink-0">
+                    <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${selectedProvider.full_name}&backgroundColor=0B3D2E&textColor=ffffff`} alt="avatar" />
                  </div>
-                 <p className="text-xs text-gray-500 mt-2">From {providerBookings.filter(b => b.status === 'completed').length} completed jobs</p>
+                 <div>
+                  <h2 className="text-xl font-bold">{selectedProvider.full_name}</h2>
+                  <p className="text-[#D4AF37] text-xs font-bold uppercase tracking-wider mt-1">{selectedProvider.provider_type}</p>
+                 </div>
               </div>
+              <button onClick={closeDrawer} className="text-white hover:text-[#D4AF37] text-3xl leading-none">&times;</button>
+            </div>
 
-              {/* --- JOB HISTORY LIST --- */}
-              <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase mb-3 border-b border-gray-200 pb-2">Job History ({providerBookings.length})</h3>
-                
-                {loadingBookings ? (
-                  <div className="text-center py-6 text-sm font-bold text-gray-400 animate-pulse">Loading history...</div>
-                ) : providerBookings.length === 0 ? (
-                  <div className="text-center py-6 bg-white rounded-xl border border-gray-100 text-sm text-gray-400">
-                    No jobs assigned yet.
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {providerBookings.map(job => (
-                      <div key={job.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col gap-2">
-                        <div className="flex justify-between items-start">
-                          <p className="font-bold text-[#0B3D2E]">{job.services?.name || 'Unknown Service'}</p>
-                          <span className="font-black text-[#D4AF37]">${job.services?.price || 0}</span>
-                        </div>
-                        
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="text-gray-500">
-                            {new Date(job.booking_date).toLocaleDateString()}
-                          </span>
-                          
-                          <span className={`px-2 py-1 font-bold rounded uppercase tracking-wider text-[9px]
-                            ${job.status === 'completed' ? 'bg-[#E6F4EA] text-green-800' : 
-                              job.status === 'confirmed' ? 'bg-blue-50 text-blue-800' : 
-                              job.status === 'cancelled' ? 'bg-red-50 text-red-800' : 
-                              'bg-gray-100 text-gray-600'}`}>
-                            {job.status}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {/* Drawer Body */}
+            <div className="flex-1 overflow-y-auto bg-gray-50 p-6 space-y-8">
               
-              {/* --- CONTACT INFO --- */}
-              <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase mb-3 border-b border-gray-200 pb-2">Contact Details</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl shadow-sm">
-                    <span className="text-lg">📞</span>
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">Phone</p>
-                      <p className="font-bold text-gray-800 text-sm">{selectedProvider.phone || 'Not Provided'}</p>
+              {detailsLoading ? (
+                <div className="text-center py-10 text-gray-500 font-bold">Loading Financial History...</div>
+              ) : (
+                <>
+                  {/* --- FINANCIAL SUMMARY CARDS --- */}
+                  <div>
+                    <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Wallet Overview</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      
+                      {/* Available Balance (BIG) */}
+                      <div className="col-span-2 bg-[#0B3D2E] p-5 rounded-2xl shadow-md border border-[#0B3D2E]">
+                        <p className="text-white/70 text-xs font-bold uppercase tracking-wider">Available to Withdraw</p>
+                        <p className="text-4xl font-black text-[#D4AF37] mt-1">${availableBalance.toFixed(2)}</p>
+                      </div>
+                      
+                      {/* Total Earned */}
+                      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                        <p className="text-gray-400 text-xs font-bold uppercase">Lifetime Earnings</p>
+                        <p className="text-xl font-bold text-gray-800 mt-1">${totalEarned.toFixed(2)}</p>
+                        <p className="text-xs text-gray-500 mt-1">{completedJobs.length} Jobs Completed</p>
+                      </div>
+
+                      {/* Total Withdrawn */}
+                      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                        <p className="text-gray-400 text-xs font-bold uppercase">Total Withdrawn</p>
+                        <p className="text-xl font-bold text-green-600 mt-1">${totalWithdrawn.toFixed(2)}</p>
+                        <p className="text-xs text-gray-500 mt-1">Sent to Bank</p>
+                      </div>
+
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl shadow-sm">
-                    <span className="text-lg">✉️</span>
-                    <div className="overflow-hidden">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">Email Address</p>
-                      <p className="font-bold text-gray-800 text-sm truncate">{selectedProvider.email || 'Not Provided'}</p>
+
+                  {/* --- PAYOUT REQUESTS SECTION --- */}
+                  <div>
+                    <h3 className="text-xs font-bold text-gray-400 uppercase mb-3 flex justify-between">
+                      <span>Withdrawal Requests</span>
+                      {totalPendingPayouts > 0 && <span className="text-orange-500">Pending: ${totalPendingPayouts.toFixed(2)}</span>}
+                    </h3>
+                    
+                    <div className="space-y-3">
+                      {providerPayouts.length === 0 ? (
+                        <p className="text-sm text-gray-500 italic bg-white p-4 rounded-xl border border-gray-200 text-center">No withdrawal requests yet.</p>
+                      ) : (
+                        providerPayouts.map(payout => (
+                          <div key={payout.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center">
+                            <div>
+                              <p className="font-bold text-gray-800">${Number(payout.amount).toFixed(2)}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{new Date(payout.created_at).toLocaleDateString()} at {new Date(payout.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                            </div>
+                            
+                            {/* Actions or Status Badge */}
+                            {payout.status === 'Pending' ? (
+                              <div className="flex gap-2">
+                                <button onClick={() => handlePayoutAction(payout.id, 'Rejected')} className="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-bold rounded-lg transition">Reject</button>
+                                <button onClick={() => handlePayoutAction(payout.id, 'Paid')} className="px-3 py-1.5 bg-[#0B3D2E] text-[#D4AF37] hover:bg-[#082a1f] text-xs font-bold rounded-lg shadow-sm transition">Mark Paid</button>
+                              </div>
+                            ) : (
+                              <span className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-md ${
+                                payout.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                              }`}>
+                                {payout.status}
+                              </span>
+                            )}
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
-                </div>
-              </div>
 
+                  {/* --- JOB HISTORY SECTION --- */}
+                  <div>
+                    <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Completed Job History</h3>
+                    <div className="space-y-3">
+                      {completedJobs.length === 0 ? (
+                         <p className="text-sm text-gray-500 italic bg-white p-4 rounded-xl border border-gray-200 text-center">No completed jobs yet.</p>
+                      ) : (
+                        completedJobs.map(job => {
+                          // Clean the date safely
+                          const rawDate = job.booking_date || job.created_at;
+                          const cleanDate = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate;
+                          
+                          return (
+                            <div key={job.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center">
+                              <div>
+                                <p className="font-bold text-[#1A1A1A] text-sm">{job.service_name || 'Haircut'}</p>
+                                <p className="text-xs text-gray-500 mt-1">📅 {cleanDate} {job.booking_time_slot && `at ${job.booking_time_slot}`}</p>
+                              </div>
+                              <span className="font-bold text-green-600">+${Number(job.price || 0).toFixed(2)}</span>
+                            </div>
+                          )
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                </>
+              )}
             </div>
 
-            <div className="p-6 border-t border-gray-100 bg-white shrink-0">
-               <button onClick={closeDrawer} className="w-full py-4 bg-[#0B3D2E] text-[#D4AF37] font-black rounded-xl hover:bg-[#072a20] transition shadow-md">
-                 Close Profile
-               </button>
-            </div>
           </div>
         </div>
       )}
+
     </div>
   )
 }

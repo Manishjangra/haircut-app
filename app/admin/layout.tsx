@@ -78,6 +78,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <Link href="/admin/notifications" onClick={closeSidebar} className="flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-gray-500 hover:bg-[#0B3D2E] hover:text-[#D4AF37] transition">
             <span>📢</span> Notifications
           </Link>
+
+          <Link href="/admin/PayoutsPage" onClick={closeSidebar} className="flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-gray-500 hover:bg-[#0B3D2E] hover:text-[#D4AF37] transition">
+            <span>📢</span> Withdraw Request
+          </Link>
         </nav>
       </aside>
 
