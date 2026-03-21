@@ -10,19 +10,26 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     async function fetchDashboardData() {
+      // 👇 FIX 1: Just select '*', because Flutter saves price and service_name directly on the booking!
       const { data: bookings } = await supabase
         .from('bookings')
-        .select('*, services(name, price)')
+        .select('*')
         .order('created_at', { ascending: false })
 
       if (bookings) {
         const total = bookings.length
-        const pending = bookings.filter(b => b.status === 'pending').length
+
+        // 👇 FIX 2: Use .toLowerCase() to match 'Pending', 'Completed', etc. safely
+        const pending = bookings.filter(b => (b.status || '').toLowerCase() === 'pending').length
         
         // Calculate Revenue (Completed + Confirmed)
         const revenue = bookings
-          .filter(b => b.status === 'completed' || b.status === 'confirmed')
-          .reduce((sum, b) => sum + (b.services?.price || 0), 0)
+          .filter(b => {
+            const status = (b.status || '').toLowerCase()
+            return status === 'completed' || status === 'confirmed'
+          })
+          // 👇 FIX 3: Use b.price directly
+          .reduce((sum, b) => sum + (Number(b.price) || 0), 0)
 
         setStats({ totalBookings: total, pendingBookings: pending, revenue })
         setRecentBookings(bookings.slice(0, 5))
@@ -47,7 +54,7 @@ export default function AdminDashboard() {
           <div className="w-14 h-14 bg-green-50 text-green-600 rounded-xl flex items-center justify-center text-2xl">💰</div>
           <div>
             <p className="text-sm font-bold text-gray-400 uppercase">Total Revenue</p>
-            <h2 className="text-3xl font-black text-[#0B3D2E]">${stats.revenue}</h2>
+            <h2 className="text-3xl font-black text-[#0B3D2E]">${stats.revenue.toFixed(2)}</h2>
           </div>
         </div>
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
@@ -83,23 +90,30 @@ export default function AdminDashboard() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {recentBookings.map((b) => (
+            {recentBookings.map((b) => {
+              const statusLower = (b.status || '').toLowerCase();
+              return (
               <tr key={b.id} className="hover:bg-gray-50 transition">
-                <td className="p-4 font-bold text-[#0B3D2E]">{b.services?.name || 'Unknown'}</td>
+                {/* 👇 FIX 4: Use service_name */}
+                <td className="p-4 font-bold text-[#0B3D2E]">{b.service_name || 'Custom Booking'}</td>
                 <td className="p-4 text-sm text-gray-600">
-                  {new Date(b.booking_date).toLocaleDateString()} • {new Date(b.booking_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                  {/* 👇 FIX 5: Use booking_date and booking_time_slot */}
+                  {b.booking_date} • {b.booking_time_slot || 'ASAP'}
                 </td>
                 <td className="p-4">
                   <span className={`px-3 py-1 text-[10px] font-bold rounded-full uppercase
-                    ${b.status === 'confirmed' ? 'bg-green-100 text-green-800' : 
-                      b.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
-                      b.status === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
+                    ${statusLower === 'completed' ? 'bg-green-100 text-green-800' : 
+                      statusLower === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                      statusLower === 'cancelled' ? 'bg-red-100 text-red-800' : 
+                      statusLower === 'in progress' ? 'bg-blue-100 text-blue-800' : 
+                      'bg-gray-100 text-gray-800'}`}>
                     {b.status}
                   </span>
                 </td>
-                <td className="p-4 text-right font-bold text-[#D4AF37]">${b.services?.price || 0}</td>
+                {/* 👇 FIX 6: Use b.price */}
+                <td className="p-4 text-right font-bold text-[#D4AF37]">${Number(b.price || 0).toFixed(2)}</td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       </div>

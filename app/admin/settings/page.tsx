@@ -9,6 +9,7 @@ export default function PlatformSettingsPage() {
   // Settings State
   const [taxRate, setTaxRate] = useState<number>(0)
   const [serviceFee, setServiceFee] = useState<number>(0)
+  const [luxuryVanFee, setLuxuryVanFee] = useState<number>(49) // 👈 Added Luxury Van Fee
   const [primePrice, setPrimePrice] = useState<number>(0)
   const [primeDuration, setPrimeDuration] = useState<number>(0)
 
@@ -27,6 +28,7 @@ export default function PlatformSettingsPage() {
     if (data && !error) {
       setTaxRate(data.tax_rate_percent)
       setServiceFee(data.service_fee)
+      setLuxuryVanFee(data.luxury_van_fee ?? 49) // Load from DB or default to 49
       setPrimePrice(data.prime_price)
       setPrimeDuration(data.prime_duration_months)
     } else {
@@ -45,6 +47,7 @@ export default function PlatformSettingsPage() {
         id: 1, // Always update row 1
         tax_rate_percent: taxRate,
         service_fee: serviceFee,
+        luxury_van_fee: luxuryVanFee, // 👈 Save to Database
         prime_price: primePrice,
         prime_duration_months: primeDuration
       })
@@ -74,7 +77,10 @@ export default function PlatformSettingsPage() {
           <h2 className="text-lg font-bold text-[#0B3D2E] mb-4 flex items-center gap-2">
             <span>💳</span> Checkout Fees & Taxes
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Changed to 3 columns to fit the new Van fee */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            
+            {/* Tax Rate */}
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Tax Rate (%)</label>
               <div className="relative">
@@ -88,8 +94,9 @@ export default function PlatformSettingsPage() {
               <p className="text-xs text-gray-400 mt-2">Applied to the base price of all haircuts.</p>
             </div>
 
+            {/* Service Fee */}
             <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Platform Service Fee ($)</label>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Platform Fee ($)</label>
               <div className="relative">
                 <span className="absolute left-4 top-3.5 text-gray-400 font-bold">$</span>
                 <input 
@@ -98,8 +105,23 @@ export default function PlatformSettingsPage() {
                   className="w-full pl-8 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#D4AF37] outline-none font-bold text-gray-800"
                 />
               </div>
-              <p className="text-xs text-gray-400 mt-2">Flat fee added to standard bookings. (Waived for Prime members).</p>
+              <p className="text-xs text-gray-400 mt-2">Flat fee added to bookings. (Waived for Prime).</p>
             </div>
+
+            {/* 👇 NEW: Luxury Van Fee */}
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Luxury Van Fee ($)</label>
+              <div className="relative">
+                <span className="absolute left-4 top-3.5 text-[#0B3D2E] font-bold">$</span>
+                <input 
+                  type="number" step="0.01" required
+                  value={luxuryVanFee} onChange={e => setLuxuryVanFee(Number(e.target.value))}
+                  className="w-full pl-8 pr-4 py-3 bg-green-50 border border-green-200 rounded-xl focus:ring-2 focus:ring-[#0B3D2E] outline-none font-bold text-[#0B3D2E]"
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-2">Extra charge for the Luxury Van service mode.</p>
+            </div>
+
           </div>
         </div>
 
@@ -136,6 +158,30 @@ export default function PlatformSettingsPage() {
               </div>
             </div>
           </div>
+
+          {/* 👇 NEW: Prime Features Display */}
+          <div className="mt-8 pt-6 border-t border-white/10 relative z-10">
+            <h3 className="text-xs font-bold text-[#D4AF37] uppercase tracking-widest mb-4">Included Prime Benefits for Users</h3>
+            <ul className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-200">
+              <li className="flex items-center gap-3">
+                <div className="bg-[#D4AF37]/20 p-1.5 rounded-full"><span className="text-[#D4AF37] text-xs">✓</span></div>
+                <span className="font-medium">Waived Platform Service Fees ($0 fee)</span>
+              </li>
+              <li className="flex items-center gap-3">
+                <div className="bg-[#D4AF37]/20 p-1.5 rounded-full"><span className="text-[#D4AF37] text-xs">✓</span></div>
+                <span className="font-medium">15% Discount on all Haircut Services</span>
+              </li>
+              <li className="flex items-center gap-3">
+                <div className="bg-[#D4AF37]/20 p-1.5 rounded-full"><span className="text-[#D4AF37] text-xs">✓</span></div>
+                <span className="font-medium">Priority Stylist Booking & Allocation</span>
+              </li>
+              <li className="flex items-center gap-3">
+                <div className="bg-[#D4AF37]/20 p-1.5 rounded-full"><span className="text-[#D4AF37] text-xs">✓</span></div>
+                <span className="font-medium">Exclusive Members-Only App Offers</span>
+              </li>
+            </ul>
+          </div>
+
         </div>
 
         {/* ACTION BUTTON */}

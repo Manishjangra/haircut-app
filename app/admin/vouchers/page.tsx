@@ -27,14 +27,14 @@ export default function VouchersPage() {
     setLoading(false)
   }
 
-  async function addVoucher(e: React.FormEvent) {
+ async function addVoucher(e: React.FormEvent) {
     e.preventDefault()
     if (!newCode || !newAmount) return alert("Code and Amount are required!")
 
     const { error } = await supabase.from('vouchers').insert({
       code: newCode.toUpperCase().trim(),
       description: newDesc,
-      discount_amount: Number(newAmount),
+      discount: Number(newAmount), // 👈 CHANGED FROM discount_amount
       is_active: true
     })
 
@@ -45,6 +45,8 @@ export default function VouchersPage() {
       fetchVouchers()
     }
   }
+   
+  
 
   async function toggleActive(id: string, currentStatus: boolean) {
     await supabase.from('vouchers').update({ is_active: !currentStatus }).eq('id', id)
@@ -95,7 +97,7 @@ export default function VouchersPage() {
           </form>
         </div>
       )}
-
+       
       {/* VOUCHERS LIST */}
       {loading ? (
         <div className="text-center p-10 text-gray-500 font-bold">Loading Vouchers...</div>
@@ -118,11 +120,12 @@ export default function VouchersPage() {
                     {v.code}
                   </div>
                   <div className="text-2xl font-black text-[#D4AF37]">
-                    {/* 👇 THIS LINE IS FIXED WITH A SAFE NUMBER WRAPPER 👇 */}
-                    -${Number(v.discount_amount || 0).toFixed(2)}
+                    {/* 👇 CHANGED FROM v.discount_amount to v.discount 👇 */}
+                    -${Number(v.discount || 0).toFixed(2)}
                   </div>
                 </div>
 
+                
                 <p className="text-sm text-gray-600 font-medium mb-6 h-10">{v.description}</p>
 
                 <div className="flex items-center justify-between pt-4 border-t border-gray-100">
