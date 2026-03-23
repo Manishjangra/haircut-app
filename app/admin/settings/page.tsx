@@ -8,8 +8,9 @@ export default function PlatformSettingsPage() {
 
   // Settings State
   const [taxRate, setTaxRate] = useState<number>(0)
-  const [serviceFee, setServiceFee] = useState<number>(0)
-  const [luxuryVanFee, setLuxuryVanFee] = useState<number>(49) // 👈 Added Luxury Van Fee
+  // 👇 NEW: Percentage-based fees
+  const [inHomeFee, setInHomeFee] = useState<number>(10) 
+  const [vanFee, setVanFee] = useState<number>(20)
   const [primePrice, setPrimePrice] = useState<number>(0)
   const [primeDuration, setPrimeDuration] = useState<number>(0)
 
@@ -27,12 +28,13 @@ export default function PlatformSettingsPage() {
 
     if (data && !error) {
       setTaxRate(data.tax_rate_percent)
-      setServiceFee(data.service_fee)
-      setLuxuryVanFee(data.luxury_van_fee ?? 49) // Load from DB or default to 49
+      // 👇 NEW: Load percentages
+      setInHomeFee(data.in_home_fee_percent ?? 10) 
+      setVanFee(data.van_fee_percent ?? 20)
       setPrimePrice(data.prime_price)
       setPrimeDuration(data.prime_duration_months)
     } else {
-      console.error("Could not load settings. Did you run the SQL script?", error)
+      console.error("Could not load settings.", error)
     }
     setLoading(false)
   }
@@ -46,8 +48,8 @@ export default function PlatformSettingsPage() {
       .upsert({
         id: 1, // Always update row 1
         tax_rate_percent: taxRate,
-        service_fee: serviceFee,
-        luxury_van_fee: luxuryVanFee, // 👈 Save to Database
+        in_home_fee_percent: inHomeFee, // 👈 Save In-Home 10%
+        van_fee_percent: vanFee,        // 👈 Save Van 20%
         prime_price: primePrice,
         prime_duration_months: primeDuration
       })
@@ -56,7 +58,7 @@ export default function PlatformSettingsPage() {
     if (error) {
       alert(`Error saving settings: ${error.message}`)
     } else {
-      alert('✅ Platform settings updated successfully! The Customer App will now use these new rates.')
+      alert('✅ Platform settings updated successfully! The App will now use these new rates.')
     }
   }
 
@@ -64,20 +66,17 @@ export default function PlatformSettingsPage() {
 
   return (
     <div className="max-w-4xl space-y-8 relative">
-      
       <div>
         <h1 className="text-3xl font-bold text-[#0B3D2E]">Platform Settings</h1>
         <p className="text-gray-500 mt-1">Change taxes, fees, and prime membership rules globally.</p>
       </div>
 
       <form onSubmit={saveSettings} className="space-y-6">
-        
         {/* TAX & FEES SECTION */}
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
           <h2 className="text-lg font-bold text-[#0B3D2E] mb-4 flex items-center gap-2">
             <span>💳</span> Checkout Fees & Taxes
           </h2>
-          {/* Changed to 3 columns to fit the new Van fee */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             
             {/* Tax Rate */}
@@ -91,35 +90,35 @@ export default function PlatformSettingsPage() {
                 />
                 <span className="absolute right-4 top-3.5 text-gray-400 font-bold">%</span>
               </div>
-              <p className="text-xs text-gray-400 mt-2">Applied to the base price of all haircuts.</p>
+              <p className="text-xs text-gray-400 mt-2">Applied to the base price.</p>
             </div>
 
-            {/* Service Fee */}
+            {/* In-Home Fee */}
             <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Platform Fee ($)</label>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">In-Home Fee (%)</label>
               <div className="relative">
-                <span className="absolute left-4 top-3.5 text-gray-400 font-bold">$</span>
                 <input 
-                  type="number" step="0.01" required
-                  value={serviceFee} onChange={e => setServiceFee(Number(e.target.value))}
-                  className="w-full pl-8 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#D4AF37] outline-none font-bold text-gray-800"
+                  type="number" step="0.1" required
+                  value={inHomeFee} onChange={e => setInHomeFee(Number(e.target.value))}
+                  className="w-full pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#D4AF37] outline-none font-bold text-gray-800"
                 />
+                <span className="absolute right-4 top-3.5 text-gray-400 font-bold">%</span>
               </div>
-              <p className="text-xs text-gray-400 mt-2">Flat fee added to bookings. (Waived for Prime).</p>
+              <p className="text-xs text-gray-400 mt-2">Platform fee for In-Home service.</p>
             </div>
 
-            {/* 👇 NEW: Luxury Van Fee */}
+            {/* Luxury Van Fee */}
             <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Luxury Van Fee ($)</label>
+              <label className="block text-xs font-bold text-[#0B3D2E] uppercase mb-2">Luxury Van Fee (%)</label>
               <div className="relative">
-                <span className="absolute left-4 top-3.5 text-[#0B3D2E] font-bold">$</span>
                 <input 
-                  type="number" step="0.01" required
-                  value={luxuryVanFee} onChange={e => setLuxuryVanFee(Number(e.target.value))}
-                  className="w-full pl-8 pr-4 py-3 bg-green-50 border border-green-200 rounded-xl focus:ring-2 focus:ring-[#0B3D2E] outline-none font-bold text-[#0B3D2E]"
+                  type="number" step="0.1" required
+                  value={vanFee} onChange={e => setVanFee(Number(e.target.value))}
+                  className="w-full pl-4 pr-10 py-3 bg-green-50 border border-green-200 rounded-xl focus:ring-2 focus:ring-[#0B3D2E] outline-none font-bold text-[#0B3D2E]"
                 />
+                <span className="absolute right-4 top-3.5 text-[#0B3D2E] font-bold">%</span>
               </div>
-              <p className="text-xs text-gray-400 mt-2">Extra charge for the Luxury Van service mode.</p>
+              <p className="text-xs text-gray-400 mt-2">Platform fee for Van service.</p>
             </div>
 
           </div>
@@ -159,7 +158,7 @@ export default function PlatformSettingsPage() {
             </div>
           </div>
 
-          {/* 👇 NEW: Prime Features Display */}
+          {/* Prime Features Display */}
           <div className="mt-8 pt-6 border-t border-white/10 relative z-10">
             <h3 className="text-xs font-bold text-[#D4AF37] uppercase tracking-widest mb-4">Included Prime Benefits for Users</h3>
             <ul className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-200">
@@ -181,10 +180,8 @@ export default function PlatformSettingsPage() {
               </li>
             </ul>
           </div>
-
         </div>
 
-        {/* ACTION BUTTON */}
         <div className="flex justify-end pt-4">
           <button 
             type="submit" 
@@ -194,7 +191,6 @@ export default function PlatformSettingsPage() {
             {saving ? '⏳ Saving to Server...' : '💾 Save Global Settings'}
           </button>
         </div>
-
       </form>
     </div>
   )
